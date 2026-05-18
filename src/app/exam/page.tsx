@@ -23,71 +23,43 @@ export default function ExamPage() {
   const [studentName, setStudentName] = useState('');
   const [studentId, setStudentId] = useState('');
   const [selectedTrack, setSelectedTrack] = useState<ExamSection>('track1');
-  const [useAI, setUseAI] = useState(false);
   const startTimeRef = useRef(0);
 
   const startExam = async () => {
     setLoading(true);
 
-    if (useAI) {
-      // Generate fresh questions first
-      const trackTopic = selectedTrack === 'track1' ? 'track1_business' :
-        selectedTrack === 'track2' ? 'track2_infra' : 'track3_appbuild';
-      try {
-        await fetch('/api/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ topic: 'design_patterns', count: 3, types: ['single', 'multi', 'short'] }),
-        });
-        await fetch('/api/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ topic: 'rag', count: 2, types: ['single', 'scenario'] }),
-        });
-        await fetch('/api/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ topic: 'prompt_eng', count: 2, types: ['single', 'multi'] }),
-        });
-        await fetch('/api/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ topic: 'agent', count: 2, types: ['single', 'case_study'] }),
-        });
-        await fetch('/api/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ topic: 'observability', count: 2, types: ['single', 'scenario'] }),
-        });
-        await fetch('/api/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ topic: 'security', count: 2, types: ['single', 'case_study'] }),
-        });
-        await fetch('/api/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ topic: trackTopic, count: 7, types: ['single', 'multi', 'short', 'scenario', 'case_study'] }),
-        });
-      } catch {
-        // Fall back to existing questions if generation fails
-      }
-    }
-
-    // Load Part I questions (all topics)
-    const part1Topics = EXAM_SECTIONS.part1.topics.map(t => `topic=${t}`).join('&');
     const trackTopic = selectedTrack === 'track1' ? 'track1_business' :
       selectedTrack === 'track2' ? 'track2_infra' : 'track3_appbuild';
 
+    // Random question source: bank only, AI only, or mix
+    const roll = Math.random();
+    const strategy = roll < 0.33 ? 'bank' : roll < 0.66 ? 'mix' : 'ai';
+
+    if (strategy === 'ai' || strategy === 'mix') {
+      const part1Topics = EXAM_SECTIONS.part1.topics;
+      const genTopics = strategy === 'ai'
+        ? [...part1Topics, trackTopic]
+        : [...part1Topics.sort(() => Math.random() - 0.5).slice(0, 3), trackTopic];
+
+      await Promise.all(genTopics.map(topic =>
+        fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic, count: 2, types: ['single', 'multi', 'short'] }),
+        }).catch(() => {})
+      ));
+    }
+
+    // Load questions from bank (includes any AI-generated ones)
+    const part1Params = EXAM_SECTIONS.part1.topics.map(t => `topic=${t}`).join('&');
     const [res1, res2] = await Promise.all([
-      fetch(`/api/questions?${part1Topics}`),
+      fetch(`/api/questions?${part1Params}`),
       fetch(`/api/questions?topic=${trackTopic}`),
     ]);
 
     const part1Questions: Question[] = await res1.json();
     const part2Questions: Question[] = await res2.json();
 
-    // Limit to reasonable counts
     const p1 = part1Questions.slice(0, 8);
     const p2 = part2Questions.slice(0, 7);
     const all = [...p1, ...p2];
@@ -187,28 +159,6 @@ export default function ExamPage() {
             </div>
           </div>
 
-          <div className="bg-slate-50 rounded-lg p-4 space-y-2">
-            <h3 className="font-semibold text-slate-700 text-sm">Nguồn câu hỏi</h3>
-            <div className="flex gap-3">
-              <button onClick={() => setUseAI(false)}
-                className={`flex-1 p-3 rounded-lg border text-sm transition-all ${
-                  !useAI ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-200' : 'border-slate-200 bg-white'
-                }`}
-              >
-                <div className="font-medium">Bộ đề có sẵn</div>
-                <div className="text-xs text-slate-400">74+ câu từ ngân hàng</div>
-              </button>
-              <button onClick={() => setUseAI(true)}
-                className={`flex-1 p-3 rounded-lg border text-sm transition-all ${
-                  useAI ? 'border-purple-400 bg-purple-50 ring-1 ring-purple-200' : 'border-slate-200 bg-white'
-                }`}
-              >
-                <div className="font-medium">Tạo đề mới với AI</div>
-                <div className="text-xs text-slate-400">DeepSeek sinh câu hỏi mới</div>
-              </button>
-            </div>
-          </div>
-
           <button
             onClick={startExam}
             disabled={!canStart || loading}
@@ -223,9 +173,7 @@ export default function ExamPage() {
 
   // ─── Loading ───
   if (loading) {
-    return <div className="text-center py-20 text-slate-400">
-      {useAI ? 'Đang tạo câu hỏi với DeepSeek...' : 'Đang tải câu hỏi...'}
-    </div>;
+    return <div className="text-center py-20 text-slate-400">Đang chuẩn bị đề...</div>;
   }
 
   if (questions.length === 0) {

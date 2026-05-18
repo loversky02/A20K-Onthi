@@ -21,12 +21,32 @@ export default function PracticePage() {
   const startPractice = async () => {
     setLoading(true);
 
-    const part1Topics = EXAM_SECTIONS.part1.topics.map(t => `topic=${t}`).join('&');
     const trackTopic = selectedTrack === 'track1' ? 'track1_business' :
       selectedTrack === 'track2' ? 'track2_infra' : 'track3_appbuild';
 
+    // Random question source: bank only, AI only, or mix
+    const roll = Math.random();
+    const strategy = roll < 0.33 ? 'bank' : roll < 0.66 ? 'mix' : 'ai';
+
+    if (strategy === 'ai' || strategy === 'mix') {
+      const part1Topics = EXAM_SECTIONS.part1.topics;
+      const genTopics = strategy === 'ai'
+        ? [...part1Topics, trackTopic]
+        : [...part1Topics.sort(() => Math.random() - 0.5).slice(0, 3), trackTopic];
+
+      await Promise.all(genTopics.map(topic =>
+        fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic, count: 2, types: ['single', 'multi', 'short'] }),
+        }).catch(() => {})
+      ));
+    }
+
+    // Load questions from bank (includes any AI-generated ones)
+    const part1Params = EXAM_SECTIONS.part1.topics.map(t => `topic=${t}`).join('&');
     const [res1, res2] = await Promise.all([
-      fetch(`/api/questions?${part1Topics}`),
+      fetch(`/api/questions?${part1Params}`),
       fetch(`/api/questions?topic=${trackTopic}`),
     ]);
 
@@ -122,7 +142,7 @@ export default function PracticePage() {
 
   // ─── Loading ───
   if (loading) {
-    return <div className="text-center py-20 text-slate-400">Đang tải câu hỏi...</div>;
+    return <div className="text-center py-20 text-slate-400">Đang chuẩn bị đề...</div>;
   }
 
   if (questions.length === 0) {
