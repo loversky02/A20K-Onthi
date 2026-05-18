@@ -18,7 +18,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <nav className="flex items-center gap-4 text-sm">
               <a href="/exam" className="text-slate-600 hover:text-blue-600 transition-colors">Thi thử</a>
               <a href="/practice" className="text-slate-600 hover:text-blue-600 transition-colors">Luyện tập</a>
-              <a href="/generate" className="text-slate-600 hover:text-blue-600 transition-colors">Tạo câu hỏi</a>
               <a href="/results" className="text-slate-600 hover:text-blue-600 transition-colors">Kết quả</a>
             </nav>
           </div>

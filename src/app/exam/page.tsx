@@ -1,45 +1,103 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense } from 'react';
+import { useState, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import Timer from '@/components/Timer';
 import ProgressBar from '@/components/ProgressBar';
 import ExamNav from '@/components/ExamNav';
 import QuestionCard from '@/components/QuestionCard';
 import { EXAM_SECTIONS, type Question, type UserAnswer, type ExamSection } from '@/types';
 
-const EXAM_TIME = 60 * 60; // 60 phút
+const EXAM_TIME = 120 * 60; // 120 phút cho cả 2 phần
+const TRACK_KEYS: ExamSection[] = ['track1', 'track2', 'track3'];
 
-function ExamContent() {
+export default function ExamPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const sectionKey = (searchParams.get('section') || 'part1') as ExamSection;
-  const section = EXAM_SECTIONS[sectionKey] || EXAM_SECTIONS.part1;
-
-  const [phase, setPhase] = useState<'select' | 'register' | 'exam' | 'submitted'>('select');
+  const [phase, setPhase] = useState<'register' | 'exam' | 'submitted'>('register');
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [part1Count, setPart1Count] = useState(0);
   const [answers, setAnswers] = useState<UserAnswer[]>([]);
   const [current, setCurrent] = useState(0);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [studentName, setStudentName] = useState('');
   const [studentId, setStudentId] = useState('');
+  const [selectedTrack, setSelectedTrack] = useState<ExamSection>('track1');
+  const [useAI, setUseAI] = useState(false);
   const startTimeRef = useRef(0);
 
-  const startExam = () => {
+  const startExam = async () => {
     setLoading(true);
-    const topicFilter = section.topics.map(t => `topic=${t}`).join('&');
-    fetch(`/api/questions?${topicFilter}`)
-      .then((r) => r.json())
-      .then((data: Question[]) => {
-        const selected = data.slice(0, 16);
-        setQuestions(selected);
-        setAnswers(selected.map((q) => ({ questionId: q.id })));
-        setPhase('exam');
-        startTimeRef.current = Date.now();
-        setLoading(false);
-      });
+
+    if (useAI) {
+      // Generate fresh questions first
+      const trackTopic = selectedTrack === 'track1' ? 'track1_business' :
+        selectedTrack === 'track2' ? 'track2_infra' : 'track3_appbuild';
+      try {
+        await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic: 'design_patterns', count: 3, types: ['single', 'multi', 'short'] }),
+        });
+        await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic: 'rag', count: 2, types: ['single', 'scenario'] }),
+        });
+        await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic: 'prompt_eng', count: 2, types: ['single', 'multi'] }),
+        });
+        await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic: 'agent', count: 2, types: ['single', 'case_study'] }),
+        });
+        await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic: 'observability', count: 2, types: ['single', 'scenario'] }),
+        });
+        await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic: 'security', count: 2, types: ['single', 'case_study'] }),
+        });
+        await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic: trackTopic, count: 7, types: ['single', 'multi', 'short', 'scenario', 'case_study'] }),
+        });
+      } catch {
+        // Fall back to existing questions if generation fails
+      }
+    }
+
+    // Load Part I questions (all topics)
+    const part1Topics = EXAM_SECTIONS.part1.topics.map(t => `topic=${t}`).join('&');
+    const trackTopic = selectedTrack === 'track1' ? 'track1_business' :
+      selectedTrack === 'track2' ? 'track2_infra' : 'track3_appbuild';
+
+    const [res1, res2] = await Promise.all([
+      fetch(`/api/questions?${part1Topics}`),
+      fetch(`/api/questions?topic=${trackTopic}`),
+    ]);
+
+    const part1Questions: Question[] = await res1.json();
+    const part2Questions: Question[] = await res2.json();
+
+    // Limit to reasonable counts
+    const p1 = part1Questions.slice(0, 8);
+    const p2 = part2Questions.slice(0, 7);
+    const all = [...p1, ...p2];
+
+    setPart1Count(p1.length);
+    setQuestions(all);
+    setAnswers(all.map((q) => ({ questionId: q.id })));
+    setPhase('exam');
+    startTimeRef.current = Date.now();
+    setLoading(false);
   };
 
   const handleSubmit = useCallback(async (timeSpent: number) => {
@@ -47,6 +105,7 @@ function ExamContent() {
     setSubmitting(true);
     setPhase('submitted');
 
+    const trackInfo = EXAM_SECTIONS[selectedTrack];
     const resp = await fetch('/api/submit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -55,12 +114,12 @@ function ExamContent() {
         time_spent: timeSpent,
         student_name: studentName,
         student_id: studentId,
-        track: section.label,
+        track: `Phần I (Chung) + ${trackInfo.label}`,
       }),
     });
     const result = await resp.json();
     router.push(`/results?id=${result.id}`);
-  }, [answers, phase, router, studentName, studentId, section.label]);
+  }, [answers, phase, router, studentName, studentId, selectedTrack]);
 
   const onTimeUp = useCallback(() => {
     handleSubmit(EXAM_TIME);
@@ -70,52 +129,6 @@ function ExamContent() {
     setAnswers((prev) => prev.map((a) => (a.questionId === answer.questionId ? answer : a)));
   };
 
-  // ─── Select track ───
-  if (phase === 'select') {
-    return (
-      <div className="max-w-2xl mx-auto space-y-6">
-        <h1 className="text-2xl font-bold text-slate-800">Chọn phần thi</h1>
-        <p className="text-slate-500">
-          Mỗi phần thi 50 điểm, 60 phút. Chọn đúng track bạn đã đăng ký.
-        </p>
-        <div className="space-y-3">
-          {Object.values(EXAM_SECTIONS).map((s) => (
-            <button
-              key={s.key}
-              onClick={() => {
-                window.location.href = `/exam?section=${s.key}`;
-              }}
-              className={`w-full text-left bg-white rounded-xl border p-5 hover:shadow-md transition-all ${
-                s.key === sectionKey
-                  ? 'border-blue-400 ring-2 ring-blue-100'
-                  : 'border-slate-200 hover:border-slate-300'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-bold text-slate-800">{s.label}</h2>
-                  <p className="text-sm text-slate-500 mt-1">{s.subtitle}</p>
-                </div>
-                <span className="text-slate-300 text-2xl">→</span>
-              </div>
-              <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
-                <span>{s.points} điểm</span>
-                <span>{s.timeMinutes} phút</span>
-              </div>
-            </button>
-          ))}
-        </div>
-
-        <button
-          onClick={() => setPhase('register')}
-          className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
-        >
-          Tiếp tục với {section.label}
-        </button>
-      </div>
-    );
-  }
-
   // ─── Registration ───
   if (phase === 'register') {
     const canStart = studentName.trim().length > 0 && studentId.trim().length > 0;
@@ -123,66 +136,86 @@ function ExamContent() {
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-5">
           <div>
-            <h1 className="text-2xl font-bold text-slate-800 mb-1">Thông tin thí sinh</h1>
-            <p className="text-sm text-slate-500">Vui lòng ghi rõ Họ tên, Mã học viên và Track đã chọn.</p>
+            <h1 className="text-2xl font-bold text-slate-800 mb-1">Đăng ký thi thử</h1>
+            <p className="text-sm text-slate-500">
+              Bài thi 100 điểm — Phần I (Chung, 50đ) + Phần II (Chuyên sâu Track, 50đ)
+            </p>
           </div>
 
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800 space-y-2">
-            <p className="font-semibold">Hướng dẫn làm bài:</p>
+            <p className="font-semibold">Hướng dẫn:</p>
             <ul className="list-disc list-inside space-y-1 text-amber-700">
               <li>Khoanh tròn đáp án cho phần trắc nghiệm và đúng/sai.</li>
               <li>Phần điền khuyết cần viết chính xác từ/cụm từ.</li>
-              <li>Với câu tự luận ngắn và case study, ưu tiên trả lời súc tích không quá 10 câu kèm ví dụ cụ thể và lý giải rõ ràng.</li>
+              <li>Tự luận ngắn &amp; case study: trả lời súc tích không quá 10 câu, có ví dụ cụ thể và lý giải rõ ràng.</li>
             </ul>
           </div>
 
           <div className="space-y-3">
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-1">Họ và tên <span className="text-red-500">*</span></label>
-              <input
-                type="text"
-                value={studentName}
-                onChange={(e) => setStudentName(e.target.value)}
+              <input type="text" value={studentName} onChange={(e) => setStudentName(e.target.value)}
                 placeholder="Nguyễn Văn A"
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-slate-800 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 outline-none"
-              />
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-slate-800 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 outline-none" />
             </div>
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-1">Mã học viên <span className="text-red-500">*</span></label>
-              <input
-                type="text"
-                value={studentId}
-                onChange={(e) => setStudentId(e.target.value)}
+              <input type="text" value={studentId} onChange={(e) => setStudentId(e.target.value)}
                 placeholder="HV001"
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-slate-800 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 outline-none"
-              />
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-slate-800 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 outline-none" />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1">Track đã chọn</label>
-              <input
-                type="text"
-                value={section.label}
-                readOnly
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-lg bg-slate-50 text-slate-600"
-              />
+              <label className="block text-sm font-semibold text-slate-700 mb-1">Chọn Track cho Phần II <span className="text-red-500">*</span></label>
+              <div className="space-y-2 mt-2">
+                {TRACK_KEYS.map((key) => {
+                  const s = EXAM_SECTIONS[key];
+                  return (
+                    <button key={key}
+                      onClick={() => setSelectedTrack(key)}
+                      className={`w-full text-left p-3 rounded-lg border text-sm transition-all ${
+                        selectedTrack === key
+                          ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-200'
+                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }`}
+                    >
+                      <div className="font-semibold text-slate-800">{s.label}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">{s.subtitle}</div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
-          <div className="flex gap-3">
-            <button
-              onClick={() => setPhase('select')}
-              className="px-4 py-2.5 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
-            >
-              ← Quay lại
-            </button>
-            <button
-              onClick={startExam}
-              disabled={!canStart || loading}
-              className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
-            >
-              {loading ? 'Đang tải...' : 'Bắt đầu làm bài'}
-            </button>
+          <div className="bg-slate-50 rounded-lg p-4 space-y-2">
+            <h3 className="font-semibold text-slate-700 text-sm">Nguồn câu hỏi</h3>
+            <div className="flex gap-3">
+              <button onClick={() => setUseAI(false)}
+                className={`flex-1 p-3 rounded-lg border text-sm transition-all ${
+                  !useAI ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-200' : 'border-slate-200 bg-white'
+                }`}
+              >
+                <div className="font-medium">Bộ đề có sẵn</div>
+                <div className="text-xs text-slate-400">74+ câu từ ngân hàng</div>
+              </button>
+              <button onClick={() => setUseAI(true)}
+                className={`flex-1 p-3 rounded-lg border text-sm transition-all ${
+                  useAI ? 'border-purple-400 bg-purple-50 ring-1 ring-purple-200' : 'border-slate-200 bg-white'
+                }`}
+              >
+                <div className="font-medium">Tạo đề mới với AI</div>
+                <div className="text-xs text-slate-400">DeepSeek sinh câu hỏi mới</div>
+              </button>
+            </div>
           </div>
+
+          <button
+            onClick={startExam}
+            disabled={!canStart || loading}
+            className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            {loading ? 'Đang chuẩn bị đề...' : 'Bắt đầu làm bài (120 phút)'}
+          </button>
         </div>
       </div>
     );
@@ -190,18 +223,21 @@ function ExamContent() {
 
   // ─── Loading ───
   if (loading) {
-    return <div className="text-center py-20 text-slate-400">Đang tải câu hỏi...</div>;
+    return <div className="text-center py-20 text-slate-400">
+      {useAI ? 'Đang tạo câu hỏi với DeepSeek...' : 'Đang tải câu hỏi...'}
+    </div>;
   }
 
   if (questions.length === 0) {
     return (
       <div className="text-center py-20">
-        <p className="text-slate-500 mb-4">Chưa có câu hỏi nào cho phần này.</p>
+        <p className="text-slate-500 mb-4">Chưa có câu hỏi nào.</p>
         <a href="/generate" className="text-blue-600 hover:underline">Tạo câu hỏi →</a>
       </div>
     );
   }
 
+  const isPart2 = current >= part1Count;
   const answeredCount = answers.filter((a) =>
     (typeof a.selected === 'number') ||
     (Array.isArray(a.selected) && a.selected.length > 0) ||
@@ -218,7 +254,9 @@ function ExamContent() {
       <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between flex-wrap gap-3 sticky top-14 z-40">
         <div className="flex items-center gap-3">
           <Timer totalSeconds={EXAM_TIME} onTimeUp={onTimeUp} running={phase === 'exam'} />
-          <span className="text-xs font-medium text-slate-400 hidden sm:inline">{section.label}</span>
+          <span className="text-xs font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-500">
+            {isPart2 ? 'Phần II' : 'Phần I'}
+          </span>
         </div>
         <ProgressBar current={current + 1} total={questions.length} answered={answeredCount} />
         <button
@@ -230,13 +268,33 @@ function ExamContent() {
         </button>
       </div>
 
-      {/* Instruction reminder */}
+      {/* Section divider */}
+      {current === part1Count && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 text-center">
+          <div className="font-bold text-emerald-700 text-lg">Phần II — {EXAM_SECTIONS[selectedTrack].label}</div>
+          <div className="text-sm text-emerald-600 mt-1">Chuyên sâu Track — 50 điểm</div>
+        </div>
+      )}
+
+      {current === 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+          <div className="font-bold text-blue-700 text-lg">Phần I — Chung</div>
+          <div className="text-sm text-blue-600 mt-1">Bắt buộc cho tất cả học viên — 50 điểm</div>
+        </div>
+      )}
+
       <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 text-xs text-amber-700">
-        <strong>Nhắc nhở:</strong> Trả lời ngắn gọn, súc tích. Với case study: không quá 10 câu, có ví dụ cụ thể và lý giải rõ ràng.
+        <strong>Nhắc nhở:</strong> Trả lời ngắn gọn, súc tích. Case study: không quá 10 câu, có ví dụ cụ thể và lý giải rõ ràng.
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 p-4">
         <ExamNav total={questions.length} current={current} answers={answers} onSelect={setCurrent} />
+        {part1Count > 0 && (
+          <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-100 text-xs text-slate-400">
+            <span className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded">Phần I: 1–{part1Count}</span>
+            <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded">Phần II: {part1Count + 1}–{questions.length}</span>
+          </div>
+        )}
       </div>
 
       <QuestionCard
@@ -264,13 +322,5 @@ function ExamContent() {
         </button>
       </div>
     </div>
-  );
-}
-
-export default function ExamPage() {
-  return (
-    <Suspense fallback={<div className="text-center py-20 text-slate-400">Đang tải...</div>}>
-      <ExamContent />
-    </Suspense>
   );
 }
