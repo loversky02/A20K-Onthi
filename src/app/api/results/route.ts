@@ -4,7 +4,7 @@ import { getDb } from '@/lib/db';
 export function GET() {
   const db = getDb();
   const rows = db.prepare(`
-    SELECT id, score, total_points, time_spent, created_at
+    SELECT id, score, total_points, time_spent, student_name, student_id, track, created_at
     FROM exam_results ORDER BY created_at DESC LIMIT 50
   `).all();
   return NextResponse.json(rows);

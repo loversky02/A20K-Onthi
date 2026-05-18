@@ -77,8 +77,16 @@ function ResultsContent() {
         <h2 className="text-xl font-bold text-slate-800 mt-8">Review từng câu</h2>
         <div className="space-y-4">
           {detail.answers.map((ga, i) => {
-            const q = questions[ga.questionId];
-            if (!q) return null;
+            const q: Question = questions[ga.questionId] || {
+              id: ga.questionId,
+              type: ga.type,
+              topic: '' as never,
+              content: typeof ga.content === 'string' ? ga.content : JSON.stringify(ga.content),
+              answer: typeof ga.answer === 'string' ? ga.answer : JSON.stringify(ga.answer),
+              explanation: ga.explanation || null,
+              points: ga.points || 0,
+              created_at: '',
+            };
             return (
               <QuestionCard
                 key={ga.questionId}
