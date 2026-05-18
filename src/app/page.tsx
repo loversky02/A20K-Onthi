@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { getDb } from '@/lib/db';
 import { EXAM_SECTIONS, TOPIC_LABELS, type Topic } from '@/types';
 
+export const dynamic = 'force-dynamic';
+
 export default function HomePage() {
   const db = getDb();
   const { cnt: questionCount } = db.prepare('SELECT COUNT(*) as cnt FROM questions').get() as { cnt: number };
