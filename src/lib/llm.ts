@@ -1,13 +1,17 @@
 // ─── Multi-provider LLM client ───
 // Randomly selects from configured providers (DeepSeek, MiniMax, MiMo)
+// Supports OpenAI-compatible and Anthropic-compatible protocols
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
 }
 
+type Protocol = 'openai' | 'anthropic';
+
 interface LLMProvider {
   name: string;
+  protocol: Protocol;
   apiKey: string;
   baseUrl: string;
   model: string;
@@ -19,6 +23,7 @@ function getAvailableProviders(): LLMProvider[] {
   if (process.env.DEEPSEEK_API_KEY) {
     providers.push({
       name: 'deepseek',
+      protocol: 'openai',
       apiKey: process.env.DEEPSEEK_API_KEY,
       baseUrl: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
       model: 'deepseek-chat',
@@ -28,6 +33,7 @@ function getAvailableProviders(): LLMProvider[] {
   if (process.env.MINIMAX_API_KEY) {
     providers.push({
       name: 'minimax',
+      protocol: 'openai',
       apiKey: process.env.MINIMAX_API_KEY,
       baseUrl: process.env.MINIMAX_API_HOST || 'https://api.minimax.io',
       model: 'MiniMax-M2.7',
@@ -37,23 +43,17 @@ function getAvailableProviders(): LLMProvider[] {
   if (process.env.MIMO_API_KEY) {
     providers.push({
       name: 'mimo',
+      protocol: 'anthropic',
       apiKey: process.env.MIMO_API_KEY,
-      baseUrl: process.env.MIMO_API_HOST || 'https://token-plan-sgp.xiaomimimo.com/v1',
-      model: process.env.MIMO_MODEL || 'MiMo-V2.5-Pro',
+      baseUrl: process.env.MIMO_API_HOST || 'https://api.xiaomimimo.com',
+      model: process.env.MIMO_MODEL || 'mimo-v2.5-pro',
     });
   }
 
   return providers;
 }
 
-export async function chatLLM(messages: ChatMessage[]): Promise<{ content: string; provider: string }> {
-  const providers = getAvailableProviders();
-  if (providers.length === 0) {
-    throw new Error('No LLM API keys configured');
-  }
-
-  const provider = providers[Math.floor(Math.random() * providers.length)];
-
+async function callOpenAI(provider: LLMProvider, messages: ChatMessage[]): Promise<string> {
   const resp = await fetch(`${provider.baseUrl}/v1/chat/completions`, {
     method: 'POST',
     headers: {
@@ -74,7 +74,63 @@ export async function chatLLM(messages: ChatMessage[]): Promise<{ content: strin
   }
 
   const data = await resp.json();
-  return { content: data.choices[0].message.content, provider: provider.name };
+  return data.choices[0].message.content;
+}
+
+async function callAnthropic(provider: LLMProvider, messages: ChatMessage[]): Promise<string> {
+  // Anthropic protocol — system prompt must be extracted to top-level
+  let system: string | undefined;
+  const anthropicMessages: Array<{ role: string; content: string }> = [];
+
+  for (const m of messages) {
+    if (m.role === 'system') {
+      system = m.content;
+    } else {
+      anthropicMessages.push({ role: m.role, content: m.content });
+    }
+  }
+
+  const body: Record<string, unknown> = {
+    model: provider.model,
+    messages: anthropicMessages,
+    max_tokens: 4096,
+    thinking: { type: 'disabled' },
+  };
+  if (system) body.system = system;
+
+  const resp = await fetch(`${provider.baseUrl}/anthropic/v1/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': provider.apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`${provider.name} API error ${resp.status}: ${err}`);
+  }
+
+  const data = await resp.json();
+  const textBlock = data.content?.find((b: { type: string }) => b.type === 'text');
+  return textBlock?.text || '';
+}
+
+export async function chatLLM(messages: ChatMessage[]): Promise<{ content: string; provider: string }> {
+  const providers = getAvailableProviders();
+  if (providers.length === 0) {
+    throw new Error('No LLM API keys configured');
+  }
+
+  const provider = providers[Math.floor(Math.random() * providers.length)];
+
+  const content = provider.protocol === 'anthropic'
+    ? await callAnthropic(provider, messages)
+    : await callOpenAI(provider, messages);
+
+  return { content, provider: provider.name };
 }
 
 // ─── Prompt generation (shared across providers) ───
