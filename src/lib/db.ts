@@ -56,6 +56,9 @@ function initSchema(db: Database.Database) {
   if (!colNames.has('track')) {
     db.exec("ALTER TABLE exam_results ADD COLUMN track TEXT DEFAULT ''");
   }
+  if (!colNames.has('ip')) {
+    db.exec("ALTER TABLE exam_results ADD COLUMN ip TEXT DEFAULT ''");
+  }
 
   // Auto-seed if empty
   const { cnt } = db.prepare('SELECT COUNT(*) as cnt FROM questions').get() as { cnt: number };

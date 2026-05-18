@@ -1,14 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import ProgressBar from '@/components/ProgressBar';
 import ExamNav from '@/components/ExamNav';
 import QuestionCard from '@/components/QuestionCard';
-import { EXAM_SECTIONS, type Question, type UserAnswer, type GradedAnswer, type ExamSection } from '@/types';
+import { EXAM_SECTIONS, type Question, type UserAnswer, type GradedAnswer, type ExamSection, type Topic } from '@/types';
+
+type PracticeMode = 'part1' | 'part2' | 'both';
 
 const TRACK_KEYS: ExamSection[] = ['track1', 'track2', 'track3'];
 
 export default function PracticePage() {
+  const [mode, setMode] = useState<PracticeMode>('both');
   const [selectedTrack, setSelectedTrack] = useState<ExamSection>('track1');
   const [questions, setQuestions] = useState<Question[]>([]);
   const [part1Count, setPart1Count] = useState(0);
@@ -21,43 +24,57 @@ export default function PracticePage() {
   const startPractice = async () => {
     setLoading(true);
 
-    const trackTopic = selectedTrack === 'track1' ? 'track1_business' :
+    const trackTopic: Topic = selectedTrack === 'track1' ? 'track1_business' :
       selectedTrack === 'track2' ? 'track2_infra' : 'track3_appbuild';
 
-    // Random question source: bank only, AI only, or mix
+    // Random question source
     const roll = Math.random();
     const strategy = roll < 0.33 ? 'bank' : roll < 0.66 ? 'mix' : 'ai';
 
     if (strategy === 'ai' || strategy === 'mix') {
       const part1Topics = EXAM_SECTIONS.part1.topics;
-      const genTopics = strategy === 'ai'
+      const allGenTopics = strategy === 'ai'
         ? [...part1Topics, trackTopic]
         : [...part1Topics.sort(() => Math.random() - 0.5).slice(0, 3), trackTopic];
 
-      await Promise.all(genTopics.map(topic =>
-        fetch('/api/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ topic, count: 2, types: ['single', 'multi', 'short'] }),
-        }).catch(() => {})
-      ));
+      // Filter to only topics relevant to selected mode
+      const genTopics = mode === 'part1'
+        ? allGenTopics.filter(t => part1Topics.includes(t))
+        : mode === 'part2'
+        ? [trackTopic]
+        : allGenTopics;
+
+      if (genTopics.length > 0) {
+        await Promise.all(genTopics.map(topic =>
+          fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ topic, count: 2, types: ['single', 'multi', 'short'] }),
+          }).catch(() => {})
+        ));
+      }
     }
 
-    // Load questions from bank (includes any AI-generated ones)
-    const part1Params = EXAM_SECTIONS.part1.topics.map(t => `topic=${t}`).join('&');
-    const [res1, res2] = await Promise.all([
-      fetch(`/api/questions?${part1Params}`),
-      fetch(`/api/questions?topic=${trackTopic}`),
-    ]);
+    // Load questions based on mode
+    let part1Questions: Question[] = [];
+    let part2Questions: Question[] = [];
 
-    const part1Questions: Question[] = await res1.json();
-    const part2Questions: Question[] = await res2.json();
+    if (mode === 'part1' || mode === 'both') {
+      const p1Params = EXAM_SECTIONS.part1.topics.map(t => `topic=${t}`).join('&');
+      const res = await fetch(`/api/questions?${p1Params}`);
+      part1Questions = await res.json();
+    }
 
-    const p1 = part1Questions.slice(0, 8);
-    const p2 = part2Questions.slice(0, 7);
-    const all = [...p1, ...p2];
+    if (mode === 'part2' || mode === 'both') {
+      const res = await fetch(`/api/questions?topic=${trackTopic}`);
+      part2Questions = await res.json();
+    }
 
-    setPart1Count(p1.length);
+    const p1 = part1Questions.slice(0, 12);
+    const p2 = part2Questions.slice(0, 12);
+    const all = mode === 'both' ? [...p1.slice(0, 8), ...p2.slice(0, 7)] : mode === 'part1' ? p1 : p2;
+
+    setPart1Count(mode === 'both' ? Math.min(p1.length, 8) : mode === 'part1' ? p1.length : 0);
     setQuestions(all);
     setAnswers(all.map((q) => ({ questionId: q.id })));
     setGraded({});
@@ -94,7 +111,7 @@ export default function PracticePage() {
     ));
   };
 
-  // ─── Track selection ───
+  // ─── Mode + track selection ───
   if (!started) {
     return (
       <div className="max-w-2xl mx-auto space-y-6">
@@ -102,38 +119,67 @@ export default function PracticePage() {
           <div>
             <h1 className="text-2xl font-bold text-slate-800 mb-1">Luyện tập</h1>
             <p className="text-sm text-slate-500">
-              Làm từng câu, kiểm tra đáp án ngay, có giải thích chi tiết. Phần I (Chung) + Phần II (Chọn track).
+              Làm từng câu, kiểm tra đáp án ngay, có giải thích chi tiết.
             </p>
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-1">Chọn Track cho Phần II</label>
-            <div className="space-y-2 mt-2">
-              {TRACK_KEYS.map((key) => {
-                const s = EXAM_SECTIONS[key];
+            <label className="block text-sm font-semibold text-slate-700 mb-1">Chọn chế độ luyện tập</label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
+              {([
+                { key: 'part1' as PracticeMode, label: 'Phần I — Chung', sub: '50đ · Bắt buộc cho tất cả', color: 'blue' },
+                { key: 'part2' as PracticeMode, label: 'Phần II — Track', sub: '50đ · Chuyên sâu theo track', color: 'emerald' },
+                { key: 'both' as PracticeMode, label: 'Cả hai', sub: '100đ · Phần I + Phần II', color: 'purple' },
+              ]).map((opt) => {
+                const active = mode === opt.key;
+                const border = active
+                  ? opt.color === 'blue' ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-200'
+                  : opt.color === 'emerald' ? 'border-emerald-400 bg-emerald-50 ring-1 ring-emerald-200'
+                  : 'border-purple-400 bg-purple-50 ring-1 ring-purple-200'
+                  : 'border-slate-200 hover:border-slate-300 bg-white';
                 return (
-                  <button key={key}
-                    onClick={() => setSelectedTrack(key)}
-                    className={`w-full text-left p-3 rounded-lg border text-sm transition-all ${
-                      selectedTrack === key
-                        ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-200'
-                        : 'border-slate-200 hover:border-slate-300 bg-white'
-                    }`}
+                  <button key={opt.key}
+                    onClick={() => setMode(opt.key)}
+                    className={`text-left p-3 rounded-lg border text-sm transition-all ${border}`}
                   >
-                    <div className="font-semibold text-slate-800">{s.label}</div>
-                    <div className="text-xs text-slate-500 mt-0.5">{s.subtitle}</div>
+                    <div className="font-semibold text-slate-800">{opt.label}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">{opt.sub}</div>
                   </button>
                 );
               })}
             </div>
           </div>
 
+          {(mode === 'part2' || mode === 'both') && (
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">Chọn Track cho Phần II</label>
+              <div className="space-y-2 mt-2">
+                {TRACK_KEYS.map((key) => {
+                  const s = EXAM_SECTIONS[key];
+                  return (
+                    <button key={key}
+                      onClick={() => setSelectedTrack(key)}
+                      className={`w-full text-left p-3 rounded-lg border text-sm transition-all ${
+                        selectedTrack === key
+                          ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-200'
+                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }`}
+                    >
+                      <div className="font-semibold text-slate-800">{s.label}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">{s.subtitle}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <button
             onClick={startPractice}
             disabled={loading}
             className="w-full py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
           >
-            {loading ? 'Đang tải câu hỏi...' : 'Bắt đầu luyện tập'}
+            {loading ? 'Đang chuẩn bị đề...' : 'Bắt đầu luyện tập'}
           </button>
         </div>
       </div>
@@ -154,7 +200,9 @@ export default function PracticePage() {
     );
   }
 
-  const isPart2 = current >= part1Count;
+  const isPart2 = part1Count > 0 && current >= part1Count;
+  const sectionLabel = mode === 'part1' ? 'Phần I — Chung' :
+    mode === 'part2' ? `Phần II — ${EXAM_SECTIONS[selectedTrack].label}` : '';
   const answeredCount = Object.keys(graded).length;
 
   return (
@@ -163,7 +211,9 @@ export default function PracticePage() {
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-bold text-slate-800">Luyện tập</h1>
           <span className="text-xs font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-500">
-            {isPart2 ? 'Phần II' : 'Phần I'}
+            {mode === 'both'
+              ? (isPart2 ? 'Phần II' : 'Phần I')
+              : sectionLabel}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -171,15 +221,15 @@ export default function PracticePage() {
         </div>
       </div>
 
-      {/* Section divider */}
-      {current === part1Count && (
+      {/* Section divider — only for 'both' mode */}
+      {mode === 'both' && current === part1Count && (
         <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 text-center">
           <div className="font-bold text-emerald-700 text-lg">Phần II — {EXAM_SECTIONS[selectedTrack].label}</div>
           <div className="text-sm text-emerald-600 mt-1">Chuyên sâu Track — 50 điểm</div>
         </div>
       )}
 
-      {current === 0 && (
+      {mode === 'both' && current === 0 && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
           <div className="font-bold text-blue-700 text-lg">Phần I — Chung</div>
           <div className="text-sm text-blue-600 mt-1">Bắt buộc cho tất cả học viên — 50 điểm</div>
@@ -188,7 +238,7 @@ export default function PracticePage() {
 
       <div className="bg-white rounded-xl border border-slate-200 p-4">
         <ExamNav total={questions.length} current={current} answers={answers} onSelect={setCurrent} />
-        {part1Count > 0 && (
+        {mode === 'both' && part1Count > 0 && (
           <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-100 text-xs text-slate-400">
             <span className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded">Phần I: 1–{part1Count}</span>
             <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded">Phần II: {part1Count + 1}–{questions.length}</span>
