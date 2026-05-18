@@ -4,15 +4,15 @@ import { getDb } from '@/lib/db';
 export async function GET(req: NextRequest) {
   const db = getDb();
   const url = new URL(req.url);
-  const topic = url.searchParams.get('topic');
+  const topics = url.searchParams.getAll('topic');
   const type = url.searchParams.get('type');
 
   let sql = 'SELECT * FROM questions WHERE 1=1';
   const params: string[] = [];
 
-  if (topic) {
-    sql += ' AND topic = ?';
-    params.push(topic);
+  if (topics.length > 0) {
+    sql += ` AND topic IN (${topics.map(() => '?').join(',')})`;
+    params.push(...topics);
   }
   if (type) {
     sql += ' AND type = ?';
