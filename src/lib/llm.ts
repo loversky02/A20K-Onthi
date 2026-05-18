@@ -30,7 +30,7 @@ function getAvailableProviders(): LLMProvider[] {
       name: 'minimax',
       apiKey: process.env.MINIMAX_API_KEY,
       baseUrl: process.env.MINIMAX_API_HOST || 'https://api.minimax.io',
-      model: 'MiniMax-Text-01',
+      model: 'MiniMax-M2.7',
     });
   }
 
