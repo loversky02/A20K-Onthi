@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuid } from 'uuid';
 import { getDb } from '@/lib/db';
-import { chatDeepSeek, generatePrompt, parseQuestionsResponse } from '@/lib/deepseek';
+import { chatLLM, generatePrompt, parseQuestionsResponse } from '@/lib/llm';
 import type { GenerateRequest } from '@/types';
 
 export async function POST(req: NextRequest) {
@@ -13,12 +13,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Thiếu topic' }, { status: 400 });
     }
 
-    if (!process.env.DEEPSEEK_API_KEY) {
-      return NextResponse.json({ error: 'DEEPSEEK_API_KEY chưa được cấu hình' }, { status: 500 });
+    if (!process.env.DEEPSEEK_API_KEY && !process.env.MINIMAX_API_KEY && !process.env.MIMO_API_KEY) {
+      return NextResponse.json({ error: 'Chưa cấu hình API key cho LLM' }, { status: 500 });
     }
 
     const messages = generatePrompt(topic, count, types);
-    const raw = await chatDeepSeek(messages);
+    const { content: raw, provider } = await chatLLM(messages);
     const questions = parseQuestionsResponse(raw);
 
     const db = getDb();
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     });
     tx();
 
-    return NextResponse.json({ success: true, count: ids.length, ids });
+    return NextResponse.json({ success: true, count: ids.length, ids, provider });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error('Generate error:', message);
