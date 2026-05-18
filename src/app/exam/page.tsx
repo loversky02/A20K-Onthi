@@ -36,16 +36,20 @@ export default function ExamPage() {
     const strategy = roll < 0.33 ? 'bank' : roll < 0.66 ? 'mix' : 'ai';
 
     if (strategy === 'ai' || strategy === 'mix') {
-      const part1Topics = EXAM_SECTIONS.part1.topics;
-      const genTopics = strategy === 'ai'
-        ? [...part1Topics, trackTopic]
-        : [...part1Topics.sort(() => Math.random() - 0.5).slice(0, 3), trackTopic];
+      // Batch into fewer calls: 2-3 instead of 4-7 for speed
+      const shuffled = [...EXAM_SECTIONS.part1.topics].sort(() => Math.random() - 0.5);
+      const nPart1 = strategy === 'ai' ? 3 : 2;
+      const count = strategy === 'ai' ? 4 : 3;
+      const genTopics: { topic: string; count: number }[] = [
+        ...shuffled.slice(0, nPart1).map(t => ({ topic: t, count })),
+        { topic: trackTopic, count: strategy === 'ai' ? 5 : 4 },
+      ];
 
-      await Promise.all(genTopics.map(topic =>
+      await Promise.all(genTopics.map(({ topic, count: n }) =>
         fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ topic, count: 2, types: ['single', 'multi', 'short'] }),
+          body: JSON.stringify({ topic, count: n, types: ['single', 'multi', 'short', 'scenario'] }),
         }).catch(() => {})
       ));
     }

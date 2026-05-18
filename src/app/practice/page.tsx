@@ -32,24 +32,27 @@ export default function PracticePage() {
     const strategy = roll < 0.33 ? 'bank' : roll < 0.66 ? 'mix' : 'ai';
 
     if (strategy === 'ai' || strategy === 'mix') {
-      const part1Topics = EXAM_SECTIONS.part1.topics;
-      const allGenTopics = strategy === 'ai'
-        ? [...part1Topics, trackTopic]
-        : [...part1Topics.sort(() => Math.random() - 0.5).slice(0, 3), trackTopic];
+      // Batch fewer calls for speed (2-4 instead of up to 7)
+      const shuffled = [...EXAM_SECTIONS.part1.topics].sort(() => Math.random() - 0.5);
+      const nPart1 = strategy === 'ai' ? 3 : 2;
+      const count = strategy === 'ai' ? 4 : 3;
+      const allTopics: { topic: string; count: number }[] = [
+        ...shuffled.slice(0, nPart1).map(t => ({ topic: t, count })),
+        { topic: trackTopic, count: strategy === 'ai' ? 5 : 4 },
+      ];
 
-      // Filter to only topics relevant to selected mode
       const genTopics = mode === 'part1'
-        ? allGenTopics.filter(t => part1Topics.includes(t))
+        ? allTopics.filter(t => (EXAM_SECTIONS.part1.topics as readonly string[]).includes(t.topic))
         : mode === 'part2'
-        ? [trackTopic]
-        : allGenTopics;
+        ? [{ topic: trackTopic, count: strategy === 'ai' ? 6 : 5 }]
+        : allTopics;
 
       if (genTopics.length > 0) {
-        await Promise.all(genTopics.map(topic =>
+        await Promise.all(genTopics.map(({ topic, count: n }) =>
           fetch('/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ topic, count: 2, types: ['single', 'multi', 'short'] }),
+            body: JSON.stringify({ topic, count: n, types: ['single', 'multi', 'short', 'scenario'] }),
           }).catch(() => {})
         ));
       }
