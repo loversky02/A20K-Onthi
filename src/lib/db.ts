@@ -61,10 +61,12 @@ function initSchema(db: Database.Database) {
     db.exec("ALTER TABLE exam_results ADD COLUMN ip TEXT DEFAULT ''");
   }
 
-  // Auto-seed if empty
+  // Auto-seed if empty, or refresh track2 questions if stale
   const { cnt } = db.prepare('SELECT COUNT(*) as cnt FROM questions').get() as { cnt: number };
   if (cnt === 0) {
     importSeed(db);
+  } else {
+    refreshTrack2Questions(db);
   }
 }
 
@@ -84,6 +86,40 @@ function importSeed(db: Database.Database) {
   });
   tx();
   console.log(`Auto-seeded ${data.length} questions.`);
+}
+
+/**
+ * Detect stale track2 questions (containing repetitive "Track2 Infrastructure")
+ * and replace them with updated seed data. One-time migration safe to re-run.
+ */
+function refreshTrack2Questions(db: Database.Database) {
+  const stale = db.prepare(
+    "SELECT COUNT(*) as cnt FROM questions WHERE topic = 'track2_infra' AND content LIKE '%Track2 Infrastructure%'"
+  ).get() as { cnt: number };
+
+  if (stale.cnt === 0) return;
+
+  console.log(`Found ${stale.cnt} stale track2 questions — refreshing from seed...`);
+
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { v4: uuid } = require('uuid');
+  const fs = require('fs');
+  const path = require('path');
+  const seedPath = path.join(process.cwd(), 'src', 'lib', 'seed-data.json');
+  const data = JSON.parse(fs.readFileSync(seedPath, 'utf-8'));
+  const track2Seed = data.filter((q: { topic: string }) => q.topic === 'track2_infra');
+
+  const del = db.prepare("DELETE FROM questions WHERE topic = 'track2_infra'");
+  const insert = db.prepare('INSERT INTO questions (id, type, topic, content, answer, explanation, points) VALUES (?, ?, ?, ?, ?, ?, ?)');
+
+  const tx = db.transaction(() => {
+    del.run();
+    for (const q of track2Seed) {
+      insert.run(uuid(), q.type, q.topic, JSON.stringify(q.content), JSON.stringify(q.answer), q.explanation, q.points);
+    }
+  });
+  tx();
+  console.log(`Refreshed ${track2Seed.length} track2 questions.`);
 }
 
 export function closeDb() {
