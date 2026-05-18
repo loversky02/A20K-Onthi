@@ -32,7 +32,7 @@ export default function PracticePage() {
     const strategy = roll < 0.33 ? 'bank' : roll < 0.66 ? 'mix' : 'ai';
 
     if (strategy === 'ai' || strategy === 'mix') {
-      // Batch fewer calls for speed (2-4 instead of up to 7)
+      // Fire-and-forget: generate in background, don't block practice start
       const shuffled = [...EXAM_SECTIONS.part1.topics].sort(() => Math.random() - 0.5);
       const nPart1 = strategy === 'ai' ? 3 : 2;
       const count = strategy === 'ai' ? 4 : 3;
@@ -47,18 +47,16 @@ export default function PracticePage() {
         ? [{ topic: trackTopic, count: strategy === 'ai' ? 6 : 5 }]
         : allTopics;
 
-      if (genTopics.length > 0) {
-        await Promise.all(genTopics.map(({ topic, count: n }) =>
-          fetch('/api/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ topic, count: n, types: ['single', 'multi', 'short', 'scenario'] }),
-          }).catch(() => {})
-        ));
-      }
+      genTopics.forEach(({ topic, count: n }) =>
+        fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic, count: n, types: ['single', 'multi', 'short', 'scenario'] }),
+        }).catch(() => {})
+      );
     }
 
-    // Load questions based on mode
+    // Load questions from bank immediately
     let part1Questions: Question[] = [];
     let part2Questions: Question[] = [];
 

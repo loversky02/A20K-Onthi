@@ -36,7 +36,7 @@ export default function ExamPage() {
     const strategy = roll < 0.33 ? 'bank' : roll < 0.66 ? 'mix' : 'ai';
 
     if (strategy === 'ai' || strategy === 'mix') {
-      // Batch into fewer calls: 2-3 instead of 4-7 for speed
+      // Fire-and-forget: generate in background, don't block exam start
       const shuffled = [...EXAM_SECTIONS.part1.topics].sort(() => Math.random() - 0.5);
       const nPart1 = strategy === 'ai' ? 3 : 2;
       const count = strategy === 'ai' ? 4 : 3;
@@ -45,16 +45,16 @@ export default function ExamPage() {
         { topic: trackTopic, count: strategy === 'ai' ? 5 : 4 },
       ];
 
-      await Promise.all(genTopics.map(({ topic, count: n }) =>
+      genTopics.forEach(({ topic, count: n }) =>
         fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ topic, count: n, types: ['single', 'multi', 'short', 'scenario'] }),
         }).catch(() => {})
-      ));
+      );
     }
 
-    // Load questions from bank (includes any AI-generated ones)
+    // Load questions from bank immediately (fast, no AI wait)
     const part1Params = EXAM_SECTIONS.part1.topics.map(t => `topic=${t}`).join('&');
     const [res1, res2] = await Promise.all([
       fetch(`/api/questions?${part1Params}`),
