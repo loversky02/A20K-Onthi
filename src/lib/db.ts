@@ -2,7 +2,8 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 
-const DB_DIR = path.join(process.cwd(), 'data');
+// Railway volume mount: /app/data persists across deploys & containers
+const DB_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(process.cwd(), 'data');
 const DB_PATH = path.join(DB_DIR, 'questions.db');
 
 let db: Database.Database | null = null;
