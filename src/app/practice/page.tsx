@@ -71,11 +71,11 @@ export default function PracticePage() {
       part2Questions = await res.json();
     }
 
-    const p1 = part1Questions.slice(0, 12);
-    const p2 = part2Questions.slice(0, 12);
-    const all = mode === 'both' ? [...p1.slice(0, 8), ...p2.slice(0, 7)] : mode === 'part1' ? p1 : p2;
+    const p1 = part1Questions.slice(0, 15);
+    const p2 = part2Questions.slice(0, 15);
+    const all = mode === 'both' ? [...p1.slice(0, 10), ...p2.slice(0, 10)] : mode === 'part1' ? p1 : p2;
 
-    setPart1Count(mode === 'both' ? Math.min(p1.length, 8) : mode === 'part1' ? p1.length : 0);
+    setPart1Count(mode === 'both' ? 10 : mode === 'part1' ? p1.length : 0);
     setQuestions(all);
     setAnswers(all.map((q) => ({ questionId: q.id })));
     setGraded({});

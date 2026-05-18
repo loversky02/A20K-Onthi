@@ -64,8 +64,8 @@ export default function ExamPage() {
     const part1Questions: Question[] = await res1.json();
     const part2Questions: Question[] = await res2.json();
 
-    const p1 = part1Questions.slice(0, 8);
-    const p2 = part2Questions.slice(0, 7);
+    const p1 = part1Questions.slice(0, 10);
+    const p2 = part2Questions.slice(0, 10);
     const all = [...p1, ...p2];
 
     setPart1Count(p1.length);
